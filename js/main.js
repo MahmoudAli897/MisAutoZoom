@@ -407,6 +407,22 @@
     });
 
     // ---------- ReFrame: capture current frame via QE DOM ----------
+    // Convert an OS-native file path (e.g. "C:\\Users\\...\\frame.png" on
+    // Windows or "/var/.../frame.png" on macOS) into a proper file:// URL.
+    function ZT_toFileUrl(osPath) {
+        if (!osPath) return osPath;
+        var p = osPath.replace(/\\/g, "/");
+        if (p.charAt(0) === "/") {
+            // macOS / Linux absolute path.
+            return "file://" + p;
+        }
+        if (/^[A-Za-z]:/.test(p)) {
+            // Windows drive path like C:/...
+            return "file:///" + p;
+        }
+        return "file:///" + p;
+    }
+
     btnReframe.addEventListener("click", function () {
         setStatus("Capturing frame...", "");
         // call jsx to export current frame to temp PNG
@@ -428,7 +444,7 @@
                 setStatus("Frame captured", "ok");
             };
             img.onerror = function () { setStatus("Failed to load the frame image: " + path, "error"); };
-            img.src = "file://" + path;
+            img.src = ZT_toFileUrl(path);
         });
     });
 
