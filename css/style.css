@@ -207,6 +207,24 @@ input[type="range"] {
     gap: 8px;
 }
 
+/* Diagnostics report */
+.diag-report {
+    background: #111;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: #cfe9c0;
+    font-family: "Consolas", "Menlo", monospace;
+    font-size: 10px;
+    line-height: 1.4;
+    padding: 6px 8px;
+    margin: 0;
+    max-height: 160px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    user-select: text;
+}
+
 /* Status */
 .status {
     min-height: 16px;

@@ -21,6 +21,9 @@
                 <button id="btn-clear" class="btn btn-ghost" title="Clear the rectangle">
                     Clear
                 </button>
+                <button id="btn-diagnose" class="btn btn-ghost" title="Run a diagnostic and show the report">
+                    Diagnose
+                </button>
                 <label class="toggle">
                     <input type="checkbox" id="toggle-grid" checked>
                     <span>Grid</span>
@@ -69,6 +72,7 @@
             <button id="btn-apply" class="btn btn-accent" disabled>Apply Transform</button>
         </footer>
 
+        <pre id="diag-report" class="diag-report" hidden></pre>
         <div id="status" class="status"></div>
     </div>
 

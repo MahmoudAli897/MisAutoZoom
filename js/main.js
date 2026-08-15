@@ -406,6 +406,18 @@
         draw(); updateReadout();
     });
 
+    // ---------- Diagnose: run host diagnostics and show the report ----------
+    var btnDiagnose = document.getElementById("btn-diagnose");
+    var diagReport = document.getElementById("diag-report");
+    btnDiagnose.addEventListener("click", function () {
+        setStatus("Running diagnostics...", "");
+        cs.evalScript("ZT_diagnose()", function (report) {
+            diagReport.textContent = report || "(no report)";
+            diagReport.hidden = false;
+            setStatus("Diagnostics complete. See report below.", "ok");
+        });
+    });
+
     // ---------- ReFrame: capture current frame via QE DOM ----------
     // Convert an OS-native file path (e.g. "C:\\Users\\...\\frame.png" on
     // Windows or "/var/.../frame.png" on macOS) into a proper file:// URL.
