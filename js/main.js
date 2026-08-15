@@ -1,6 +1,9 @@
 /* ZoomTransform - main.js
  * Canvas drawing + rectangle manipulation + zoom value derivation.
  * Talks to Premiere Pro via jsx/host.jsx through CSInterface.
+ *
+ * Rectangle model: {x, y, w, h, rot} where (x,y) is the top-left corner in
+ * pre-rotation canvas space, and rotation is applied about the rect center.
  */
 (function () {
     "use strict";
@@ -33,11 +36,11 @@
     // ---------- State ----------
     var state = {
         bgImage: null,        // HTMLImageElement of captured frame
-        rect: null,           // {x,y,w,h,rot} in canvas coords (x,y = top-left pre-rotation center)
-        drawMode: false,     // currently drawing a new rect by dragging
-        dragMode: null,      // 'move' | 'resize' | 'rotate' | null
-        dragHandle: null,    // 0..3 corner index
-        dragStart: null,     // {mx,my, rect snapshot, oppositeWorld}
+        rect: null,           // {x,y,w,h,rot} in canvas coords
+        drawMode: false,      // currently drawing a new rect by dragging
+        dragMode: null,       // 'move' | 'resize' | 'rotate' | null
+        dragHandle: null,     // 0..3 corner index
+        dragStart: null,      // {mx,my, rect snapshot, oppositeWorld}
         showGrid: true,
         themeColor: "#2b2b2b"
     };
@@ -268,12 +271,12 @@
         if (state.rect) {
             var ctr = rectCenter(state.rect);
             roPos.textContent = Math.round(ctr.cx) + "," + Math.round(ctr.cy);
-            roSize.textContent = Math.round(state.rect.w) + "×" + Math.round(state.rect.h);
-            roRot.textContent = Math.round(state.rect.rot * 180 / Math.PI) + "°";
+            roSize.textContent = Math.round(state.rect.w) + "x" + Math.round(state.rect.h);
+            roRot.textContent = Math.round(state.rect.rot * 180 / Math.PI) + " deg";
         } else {
-            roPos.textContent = "—";
-            roSize.textContent = "—";
-            roRot.textContent = "0°";
+            roPos.textContent = "--";
+            roSize.textContent = "--";
+            roRot.textContent = "0 deg";
         }
         btnApply.disabled = !state.rect;
     }
@@ -332,8 +335,6 @@
             state.rect.rot = d.rect.rot + (ang1 - ang0);
         } else if (state.dragMode === "resize") {
             // Keep opposite corner fixed in world; rebuild rect in local frame of fixed opposite corner.
-            // Strategy: compute the fixed opposite corner in world (already stored), then build a new
-            // axis-aligned rect from opposite world to current mouse, but aligned to the rect's rotation.
             var opp = d.oppositeWorld;
             // local axes (rotated by d.rect.rot)
             var ang = d.rect.rot;
@@ -347,14 +348,11 @@
             // new width/height (signed)
             var nw = Math.abs(a), nh = Math.abs(b);
             // Determine new top-left (local origin) so that the opposite corner stays at `opp`.
-            // The opposite corner is at local (signA*nw, signB*nh) relative to origin for the resizing corner.
             var signA = a >= 0 ? 1 : -1;
             var signB = b >= 0 ? 1 : -1;
             // origin in world = opp - signA*nw*ux - signB*nh*uy
             var ox = opp.x - signA * nw * ux.x - signB * nh * uy.x;
             var oy = opp.y - signA * nw * ux.y - signB * nh * uy.y;
-            // Convert world origin back to rect-local origin (pre-rotation): since origin is the
-            // pre-rotation top-left, and our rect.x,y is pre-rotation top-left, store directly.
             state.rect = { x: ox, y: oy, w: Math.max(10, nw), h: Math.max(10, nh), rot: ang };
         }
         draw(); updateReadout();
@@ -410,11 +408,11 @@
 
     // ---------- ReFrame: capture current frame via QE DOM ----------
     btnReframe.addEventListener("click", function () {
-        setStatus("جاري التقاط اللقطة…", "");
+        setStatus("Capturing frame...", "");
         // call jsx to export current frame to temp PNG
         cs.evalScript("ZT_captureCurrentFrame()", function (result) {
             if (!result || result === "EvalScript error.") {
-                setStatus("تعذّر تصدير اللقطة. تحقق من وجود مقطع على الـ Timeline.", "error");
+                setStatus("Failed to export the frame. Make sure a clip exists on the Timeline.", "error");
                 return;
             }
             var path = result.replace(/^"|"$/g, "");
@@ -427,9 +425,9 @@
                 state.bgImage = img;
                 hint.classList.add("hidden");
                 draw();
-                setStatus("تم التقاط اللقطة", "ok");
+                setStatus("Frame captured", "ok");
             };
-            img.onerror = function () { setStatus("تعذّر تحميل صورة اللقطة: " + path, "error"); };
+            img.onerror = function () { setStatus("Failed to load the frame image: " + path, "error"); };
             img.src = "file://" + path;
         });
     });
@@ -440,13 +438,17 @@
         var r = state.rect;
         var ctr = rectCenter(r);
         var zoom = computeZoom();
-        var nx = ctr.cx / canvas.width;   // normalized 0..1
+        // Normalized center of the zoom rectangle in the frame (0..1).
+        var nx = ctr.cx / canvas.width;
         var ny = ctr.cy / canvas.height;
         var nw = r.w / canvas.width;
         var nh = r.h / canvas.height;
         var rotDeg = r.rot * 180 / Math.PI;
         var payload = JSON.stringify({
-            nx: nx, ny: ny, nw: nw, nh: nh,
+            nx: nx,
+            ny: ny,
+            nw: nw,
+            nh: nh,
             zoom: zoom,
             rot: rotDeg,
             duration: parseFloat(durationInput.value),
@@ -456,12 +458,12 @@
             lockCenter: lockCenter.checked,
             maxZoom: parseInt(maxZoomInput.value, 10) || 600
         });
-        setStatus("جاري تطبيق الترانسفورم…", "");
+        setStatus("Applying transform...", "");
         cs.evalScript("ZT_applyTransform(" + JSON.stringify(payload) + ")", function (res) {
             if (!res || res === "EvalScript error." || res.indexOf("ERROR") === 0) {
-                setStatus("فشل التطبيق: " + (res || ""), "error");
+                setStatus("Apply failed: " + (res || ""), "error");
             } else {
-                setStatus("تم تطبيق تأثير الترانسفورم بنجاح", "ok");
+                setStatus("Transform effect applied", "ok");
             }
         });
     });

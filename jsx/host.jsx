@@ -1,43 +1,57 @@
 /* ZoomTransform - jsx/host.jsx
  * ExtendScript host layer for Premiere Pro (PPRO).
+ *
  * - Captures the current frame at the playhead via the hidden QE DOM and
  *   exports it to a temp PNG for display in the canvas (ReFrame).
  * - Applies the AE.ADBE Transform effect on the active clip under the playhead
- *   and (optionally) creates zoom keyframes with the requested easing.
+ *   and creates zoom keyframes: a start keyframe at the current playhead time
+ *   holding the clip's CURRENT scale, and an end keyframe "duration" seconds
+ *   later holding the target zoom derived from the rectangle.
  *
  * Note: ExtendScript is ES3-ish. Avoid Array.prototype.map/filter closures
  * that rely on ES5 semantics; keep loops explicit.
  *
  * The capture function relies on the hidden QE DOM (app.enableQE()). The exact
- * export call name may vary between PPRO 13.x builds; we try exportFrame then
- * exportAsMedia.
+ * export call name may vary between PPRO 13.x builds; we try several methods.
  */
 
 // Match name for the After Effects Transform effect in Premiere.
 var ZT_TRANSFORM_MATCHNAME = "AE.ADBE Transform";
+
+// Property match names inside AE.ADBE Transform.
+var ZT_PROP_SCALE = "ADBE Scale";
+var ZT_PROP_ANCHOR = "ADBE Anchor Point";
+var ZT_PROP_POSITION = "ADBE Position";
+var ZT_PROP_ROTATION = "ADBE Rotation";
+var ZT_PROP_MOTION_BLUR = "ADBE Motion Blur";
+var ZT_PROP_UNIFORM_SCALE = "ADBE Uniform Scale";
+
+// Premiere stores time as ticks; 254016000000 ticks per second.
+var ZT_TICKS_PER_SECOND = 254016000000;
 
 /* ------------------------------------------------------------------ *
  *  Utilities
  * ------------------------------------------------------------------ */
 
 function ZT_log(msg) {
-    // Best-effort logging to the ExtendScript console.
     try { $.writeln("[ZoomTransform] " + msg); } catch (e) {}
 }
 
 function ZT_tempDir() {
     var f;
-    try {
-        f = Folder.temp;
-    } catch (e) {}
-    if (!f) f = new Folder(Folder.system.fsName + (Folder.system.fsName.indexOf(":") > -1 ? "\\Temp" : "/tmp"));
+    try { f = Folder.temp; } catch (e) {}
+    if (!f) {
+        try { f = new Folder(Folder.system.fsName + (Folder.system.fsName.indexOf(":") > -1 ? "\\Temp" : "/tmp")); } catch (e2) {}
+    }
     return f;
 }
 
 function ZT_tempPath(ext) {
     ext = ext || "png";
     var name = "zt_frame_" + (new Date().getTime()) + "." + ext;
-    var f = new File(ZT_tempDir().fsName + (ZT_tempDir().fsName.indexOf(":") > -1 ? "\\" : "/") + name);
+    var dir = ZT_tempDir();
+    var sep = dir.fsName.indexOf(":") > -1 ? "\\" : "/";
+    var f = new File(dir.fsName + sep + name);
     return f;
 }
 
@@ -49,17 +63,19 @@ function ZT_getActiveSequence() {
 }
 
 function ZT_getActiveClip(seq) {
-    // Return the video track clip under the playhead.
+    // Return the topmost video-track clip under the playhead.
     try {
         var ct = seq.getCurrentTime(); // ticks string
         var tracks = seq.videoTracks;
         for (var t = tracks.numTracks - 1; t >= 0; t--) {
             var track = tracks[t];
-            var clips = track.clips;
-            for (var c = 0; c < clips.numclips; c++) {
-                var clip = clips[c];
-                if (ZT_inRange(ct, clip.start, clip.end)) {
-                    return { clip: clip, track: track };
+            if (!track.isLocked()) {
+                var clips = track.clips;
+                for (var c = 0; c < clips.numclips; c++) {
+                    var clip = clips[c];
+                    if (ZT_inRange(ct, clip.start, clip.end)) {
+                        return { clip: clip, track: track };
+                    }
                 }
             }
         }
@@ -68,22 +84,42 @@ function ZT_getActiveClip(seq) {
 }
 
 function ZT_inRange(ticks, startTicks, endTicks) {
-    // All values are Premiere tick strings; compare numerically.
     try {
         var t = parseFloat(ticks), s = parseFloat(startTicks), e = parseFloat(endTicks);
         return t >= s && t <= e;
-    } catch (err) {
-        return false;
-    }
+    } catch (err) { return false; }
 }
 
-function ZT_ticksFromSeconds(seconds, seq) {
-    // Premiere stores time as ticks; 254016000000 ticks per second.
-    var TICKS_PER_SECOND = 254016000000;
+function ZT_secondsToTicks(seconds) {
+    return Math.round(seconds * ZT_TICKS_PER_SECOND).toString();
+}
+
+function ZT_addTicks(ticksStr, seconds) {
+    // Returns a ticks string = ticksStr + seconds, clamped to >= 0.
+    var base = parseFloat(ticksStr);
+    var add = seconds * ZT_TICKS_PER_SECOND;
+    var result = base + add;
+    if (result < 0) result = 0;
+    return Math.round(result).toString();
+}
+
+function ZT_getFrameSize(seq, clip) {
+    // Resolve the source/sequence frame dimensions in pixels.
+    var w = 1920, h = 1080;
     try {
-        var fps = seq.getSettings().videoFrameRate.ticks ? 1 : 0;
+        var ss = seq.getSettings();
+        if (ss && ss.videoFrameSize) {
+            w = ss.videoFrameSize.width || w;
+            h = ss.videoFrameSize.height || h;
+        }
     } catch (e) {}
-    return Math.round(seconds * TICKS_PER_SECOND).toString();
+    try {
+        if (clip.source && clip.source.getMediaInfo && clip.source.getMediaInfo().frameSize) {
+            w = clip.source.getMediaInfo().frameSize.width || w;
+            h = clip.source.getMediaInfo().frameSize.height || h;
+        }
+    } catch (e) {}
+    return { w: w, h: h };
 }
 
 /* ------------------------------------------------------------------ *
@@ -93,42 +129,38 @@ function ZT_ticksFromSeconds(seconds, seq) {
 function ZT_captureCurrentFrame() {
     try {
         var seq = ZT_getActiveSequence();
-        if (!seq) return "ERROR: لا يوجد تسلسل نشط. افتح تسلسلاً في الـ Timeline.";
+        if (!seq) return "ERROR: No active sequence. Open a sequence on the Timeline.";
 
         // Enable the hidden QE DOM.
         try { app.enableQE(); } catch (e) {}
 
         var out = ZT_tempPath("png");
-
-        // Try the most common export path: qe.project.getActiveSequence().exportAsMediaDirect
         var exported = false;
+
+        // Method 1: qe.project.getActiveSequence().exportAsMediaDirect(path, encoder, workArea)
         try {
             var qeSeq = qe.project.getActiveSequence();
-            if (qeSeq) {
-                // Attempt exportAsMediaDirect(path, presetPath, workArea)
-                // Without a preset we cannot reliably call exportAsMediaDirect.
-                // Fall through to alternative method below.
+            if (qeSeq && typeof qeSeq.exportAsMediaDirect === "function") {
+                qeSeq.exportAsMediaDirect(out.fsName, "PNG", 0);
+                exported = out.exists;
             }
-        } catch (e) {}
+        } catch (e) { ZT_log("qe exportAsMediaDirect failed: " + e); }
 
-        // Fallback: use the public Sequence.exportAsMediaDirect with a PNG encoder preset
-        // if available; otherwise try exportAsFrame.
+        // Method 2: public Sequence.exportAsMediaDirect
         if (!exported) {
             try {
-                // Some PPRO 13 builds expose exportAsMediaDirect on the public sequence.
                 if (typeof seq.exportAsMediaDirect === "function") {
                     seq.exportAsMediaDirect(out.fsName, "PNG", 0);
                     exported = out.exists;
                 }
-            } catch (e) { ZT_log("exportAsMediaDirect failed: " + e); }
+            } catch (e) { ZT_log("seq exportAsMediaDirect failed: " + e); }
         }
 
         if (!exported) {
-            // Last resort: instruct the user that the build-specific QE export name differs.
-            return "ERROR: تعذّر تصدير اللقطة من هذا البناء من بريمير. جرّب إصداراً آخر أو أبلغ برسالة الخطأ.";
+            return "ERROR: Could not export the frame from this Premiere build. Try a different build or report the exact error.";
         }
 
-        if (!out.exists) return "ERROR: لم يُنشأ ملف اللقطة.";
+        if (!out.exists) return "ERROR: Frame file was not created.";
         return out.fsName;
     } catch (e) {
         return "ERROR: " + e.toString();
@@ -139,106 +171,73 @@ function ZT_captureCurrentFrame() {
  *  Apply Transform effect + zoom keyframes
  * ------------------------------------------------------------------ */
 
-// Property match names inside AE.ADBE Transform
-var ZT_PROP_SCALE = "ADBE Scale";
-var ZT_PROP_ANCHOR = "ADBE Anchor Point";
-var ZT_PROP_POSITION = "ADBE Position";
-var ZT_PROP_ROTATION = "ADBE Rotation";
-var ZT_PROP_MOTION_BLUR = "ADBE Motion Blur";
-
 function ZT_applyTransform(payloadStr) {
     var p;
     try {
         p = JSON.parse(payloadStr);
     } catch (e) {
-        return "ERROR: بيانات غير صالحة";
+        return "ERROR: Invalid payload data.";
     }
 
     try {
         var seq = ZT_getActiveSequence();
-        if (!seq) return "ERROR: لا يوجد تسلسل نشط.";
+        if (!seq) return "ERROR: No active sequence.";
 
         var ac = ZT_getActiveClip(seq);
-        if (!ac || !ac.clip) return "ERROR: لا يوجد مقطع تحت المؤشر على الـ Timeline.";
+        if (!ac || !ac.clip) return "ERROR: No clip under the playhead on the Timeline.";
 
         var clip = ac.clip;
-        var components = clip.components;
-        var tf = null;
 
-        // Look for an existing Transform component to update.
-        for (var i = 0; i < components.numComponents; i++) {
-            var comp = components[i];
-            if (comp && comp.matchName === ZT_TRANSFORM_MATCHNAME) { tf = comp; break; }
-        }
-
-        // Add the Transform effect if not present.
+        // Ensure the Transform effect is present.
+        var tf = ZT_findComponent(clip, ZT_TRANSFORM_MATCHNAME);
         if (!tf) {
             try {
                 clip.addEffect(ZT_TRANSFORM_MATCHNAME);
             } catch (e) {
-                // Some builds require the display name.
                 try { clip.addEffect("Transform"); } catch (e2) {
-                    return "ERROR: تعذّر إضافة تأثير Transform إلى المقطع.";
+                    return "ERROR: Could not add the Transform effect to the clip.";
                 }
             }
-            // Re-fetch components to locate the newly added Transform.
-            components = clip.components;
-            for (var j = 0; j < components.numComponents; j++) {
-                var c2 = components[j];
-                if (c2 && c2.matchName === ZT_TRANSFORM_MATCHNAME) { tf = c2; break; }
-            }
+            tf = ZT_findComponent(clip, ZT_TRANSFORM_MATCHNAME);
         }
-
-        if (!tf) return "ERROR: لم يتم العثور على مكوّن Transform بعد الإضافة.";
+        if (!tf) return "ERROR: Transform component not found after adding the effect.";
 
         // Resolve property objects.
         var scaleProp = ZT_findProp(tf, ZT_PROP_SCALE);
         var anchorProp = ZT_findProp(tf, ZT_PROP_ANCHOR);
         var posProp = ZT_findProp(tf, ZT_PROP_POSITION);
         var rotProp = ZT_findProp(tf, ZT_PROP_ROTATION);
+        var uniformScaleProp = ZT_findProp(tf, ZT_PROP_UNIFORM_SCALE);
 
-        // Normalized center of the zoom rectangle (0..1).
+        // Normalize the zoom-rectangle center in the frame (0..1).
         var nx = p.nx, ny = p.ny;
-        // Source frame dimensions (use sequence if clip dimensions unavailable).
-        var srcW = 1920, srcH = 1080;
-        try {
-            var vs = seq.getSettings().videoFrameRate; // not dims
-        } catch (e) {}
-        try {
-            if (clip.source && clip.source.getMediaInfo && clip.source.getMediaInfo().frameSize) {
-                srcW = clip.source.getMediaInfo().frameSize.width || srcW;
-                srcH = clip.source.getMediaInfo().frameSize.height || srcH;
-            }
-        } catch (e) {}
-        try {
-            var ss = seq.getSettings();
-            if (ss && ss.videoFrameSize) { srcW = ss.videoFrameSize.width || srcW; srcH = ss.videoFrameSize.height || srcH; }
-        } catch (e) {}
+        var frame = ZT_getFrameSize(seq, clip);
+        var srcW = frame.w, srcH = frame.h;
 
+        // Anchor Point = pixel center of the zoom rectangle within the frame.
         var anchorX = nx * srcW;
         var anchorY = ny * srcH;
 
-        // Anchor point to the center of the zoom rectangle.
-        if (anchorProp && anchorProp.setValue) {
-            try {
-                anchorProp.setValue([anchorX, anchorY], true);
-            } catch (e) { ZT_log("anchor set failed: " + e); }
-        }
-
-        // Rotation.
-        if (rotProp && rotProp.setValue) {
-            try { rotProp.setValue(p.rot || 0, true); } catch (e) {}
-        }
-
-        var zoom = p.zoom || 100;
-        var scaleVal = zoom; // percent
-
+        var targetZoom = p.zoom || 100;
         var duration = Math.max(0, Math.min(5, p.duration || 0));
         var easing = p.easing || "easeInOut";
         var doKeyframes = !!p.createKeyframes && duration > 0;
         var motionBlur = !!p.motionBlur;
 
-        // Motion blur on the component if supported.
+        // Read the clip's CURRENT scale to use as the start value.
+        var currentScale = ZT_readScale(scaleProp, uniformScaleProp);
+
+        // Force uniform scale if the property is available (keeps aspect ratio).
+        if (uniformScaleProp && uniformScaleProp.setValue) {
+            try { uniformScaleProp.setValue(true, true); } catch (e) {}
+        }
+
+        // Rotation (static).
+        if (rotProp && rotProp.setValue) {
+            try { rotProp.setValue(p.rot || 0, true); } catch (e) {}
+        }
+
+        // Motion blur if supported and requested.
         if (motionBlur) {
             try {
                 var mb = ZT_findProp(tf, ZT_PROP_MOTION_BLUR);
@@ -246,47 +245,65 @@ function ZT_applyTransform(payloadStr) {
             } catch (e) {}
         }
 
+        // Determine the current playhead time (ticks string) in sequence space.
+        var nowTicks = seq.getCurrentTime();
+        var nowTickNum = parseFloat(nowTicks);
+        // End time = now + duration, clamped to the clip end.
+        var endTickNum = nowTickNum + duration * ZT_TICKS_PER_SECOND;
+        var clipEndNum = parseFloat(clip.end);
+        if (endTickNum > clipEndNum) endTickNum = clipEndNum;
+        if (endTickNum < nowTickNum) endTickNum = nowTickNum;
+
         if (!doKeyframes) {
-            // Static zoom only.
-            if (scaleProp && scaleProp.setValue) {
-                try { scaleProp.setValue(scaleVal, true); } catch (e) {}
-                if (posProp && posProp.setValue && p.lockCenter) {
-                    try { posProp.setValue([anchorX, anchorY], true); } catch (e) {}
-                }
-            }
-            return "OK: تم تطبيق زوم ثابت " + Math.round(scaleVal) + "%.";
+            // Static zoom: just set the target scale and anchor at the playhead.
+            ZT_setStatic(anchorProp, [anchorX, anchorY]);
+            ZT_setStatic(scaleProp, targetZoom);
+            if (p.lockCenter) ZT_setStatic(posProp, [anchorX, anchorY]);
+            return "OK: Applied static zoom " + Math.round(targetZoom) + "%.";
         }
 
-        // Keyframed zoom animation across the clip from playhead.
-        var startTicks = clip.start;
-        var endTicks = clip.end;
-        var durTicks = parseFloat(endTicks) - parseFloat(startTicks);
-        if (durTicks <= 0) durTicks = ZT_ticksFromSeconds(duration, seq);
-        var animTicks = ZT_ticksFromSeconds(duration, seq);
-        if (animTicks <= 0 || animTicks > durTicks) animTicks = durTicks;
-        var t0 = seq.getCurrentTime();
-        var startT = parseFloat(t0);
-        var endT = startT + parseFloat(animTicks);
-        if (endT > parseFloat(endTicks)) endT = parseFloat(endTicks);
+        // ---- Keyframed zoom animation ----
+        // 1) Anchor point: set it to the zoom-rectangle center (static, not animated)
+        //    so scaling happens about the selected region.
+        ZT_setStatic(anchorProp, [anchorX, anchorY]);
 
+        // 2) Scale keyframes: start = current scale at playhead, end = target zoom.
         if (scaleProp) {
-            try {
-                // Begin: 100%, End: target zoom.
-                ZT_addKey(scaleProp, startT, 100, easing, 0);
-                ZT_addKey(scaleProp, endT, scaleVal, easing, 1);
-            } catch (e) { ZT_log("scale keyframe failed: " + e); }
-        }
-        if (posProp && p.lockCenter) {
-            try {
-                ZT_addKey(posProp, startT, [anchorX, anchorY], easing, 0);
-                ZT_addKey(posProp, endT, [anchorX, anchorY], easing, 1);
-            } catch (e) {}
+            // Enable keyframing for the scale property.
+            ZT_enableKeyframing(scaleProp);
+            // Start keyframe: hold the current scale at the current time.
+            ZT_setKeyAtTime(scaleProp, nowTickNum.toString(), currentScale);
+            // End keyframe: target zoom at (now + duration).
+            ZT_setKeyAtTime(scaleProp, Math.round(endTickNum).toString(), targetZoom);
         }
 
-        return "OK: تم إنشاء أنيمشن زوم من 100% إلى " + Math.round(scaleVal) + "% خلال " + duration + " ثانية.";
+        // 3) Position keyframes (only when lock center is on): keep the anchor
+        //    centered in the frame by offsetting position to match the anchor.
+        if (posProp && p.lockCenter) {
+            ZT_enableKeyframing(posProp);
+            ZT_setKeyAtTime(posProp, nowTickNum.toString(), [anchorX, anchorY]);
+            ZT_setKeyAtTime(posProp, Math.round(endTickNum).toString(), [anchorX, anchorY]);
+        }
+
+        return "OK: Created zoom keyframes from " + Math.round(currentScale) + "% to " + Math.round(targetZoom) + "% over " + duration + "s.";
     } catch (e) {
         return "ERROR: " + e.toString();
     }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Property helpers
+ * ------------------------------------------------------------------ */
+
+function ZT_findComponent(clip, matchName) {
+    try {
+        var components = clip.components;
+        for (var i = 0; i < components.numComponents; i++) {
+            var comp = components[i];
+            if (comp && comp.matchName === matchName) return comp;
+        }
+    } catch (e) {}
+    return null;
 }
 
 function ZT_findProp(component, matchName) {
@@ -300,27 +317,59 @@ function ZT_findProp(component, matchName) {
     return null;
 }
 
-function ZT_addKey(prop, ticksVal, value, easing, position /* 0 start / 1 end */) {
-    if (!prop) return;
+function ZT_readScale(scaleProp, uniformScaleProp) {
+    // Read the current scale value as a single percent. Premiere's ADBE Scale
+    // is a 2D array [x, y]; when uniform scale is on, x == y.
+    if (!scaleProp) return 100;
     try {
-        // Ensure keyframing is enabled.
-        if (prop.isTimeVarying !== undefined && !prop.isTimeVarying) {
-            try { prop.isTimeVarying = true; } catch (e) {}
+        var v = scaleProp.getValue();
+        if (v instanceof Array) {
+            return v[0];
         }
-        prop.setValueAtTime(ticksVal.toString(), value);
+        return v;
     } catch (e) {
-        // Fallback: just set the value statically at end.
-        try { prop.setValue(value, true); } catch (e2) {}
+        try {
+            // getValueAtTime fallback at time 0.
+            var v0 = scaleProp.getValueAtTime("0");
+            if (v0 instanceof Array) return v0[0];
+            return v0;
+        } catch (e2) { return 100; }
     }
 }
 
-// Easing helper (unused by setValueAtTime directly; reserved for future
-// interpolation refinement via temporal ease if supported by the build).
+function ZT_setStatic(prop, value) {
+    if (!prop || !prop.setValue) return false;
+    try { prop.setValue(value, true); return true; } catch (e) { return false; }
+}
+
+function ZT_enableKeyframing(prop) {
+    if (!prop) return;
+    // Premiere component properties support stopwatches via different APIs
+    // depending on the build. Try the common ones.
+    try { if (prop.isTimeVarying !== undefined && !prop.isTimeVarying) prop.isTimeVarying = true; } catch (e) {}
+    try { if (typeof prop.setKeyframeEnabled === "function") prop.setKeyframeEnabled(true); } catch (e) {}
+    try { if (prop.canSetTimeVarying !== undefined && prop.canSetTimeVarying) prop.timeVarying = true; } catch (e) {}
+}
+
+function ZT_setKeyAtTime(prop, ticksStr, value) {
+    if (!prop) return false;
+    // setValueAtTime(time, value) is the documented Premiere API on TVG properties.
+    try {
+        prop.setValueAtTime(ticksStr, value);
+        return true;
+    } catch (e) {
+        ZT_log("setValueAtTime failed: " + e + " (ticks=" + ticksStr + ")");
+        // Fallback: set the value statically so the effect still applies.
+        try { prop.setValue(value, true); } catch (e2) {}
+        return false;
+    }
+}
+
+// Easing helper reserved for future temporal-ease refinement if the build
+// exposes keyframe ease accessors.
 function ZT_easeFactor(t, type) {
-    // t in [0,1]
     if (type === "linear") return t;
     if (type === "easeIn") return t * t;
     if (type === "easeOut") return 1 - (1 - t) * (1 - t);
-    // easeInOut
     return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 }

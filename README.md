@@ -1,75 +1,70 @@
 # ZoomTransform
 
-إضافة Adobe CEP (CEP 9 / CSXS.9) لبرنامج **Adobe Premiere Pro 2020 (13.x)** تقوم بإنشاء **تأثير Transform** مع **أنيمشن زوم تفاعلي** يُرسم عبر مستطيل على لوحة (Canvas).
+An Adobe CEP (CEP 9 / CSXS.9) extension for **Adobe Premiere Pro 2020 (13.x)** that creates a **Transform effect** with an **interactive zoom animation** drawn as a rectangle on a canvas.
 
 ![CEP](https://img.shields.io/badge/CEP-9%20(CSXS.9)-blue) ![Premiere Pro](https://img.shields.io/badge/Premiere%20Pro-2020%20(13.x)-purple)
 
 ---
 
-## ✨ المميزات
+## Features
 
-### الكانفس والرسم
-- 🔁 زر **ReFrame** يلتقط اللقطة المتوقف عندها المؤشر على الـ Timeline عبر محرك **QE DOM** المخفي ويعرضها كخلفية للكانفس لرؤية الإطار الفعلي قبل تطبيق الزوم.
-- 🖱️ **رسم المستطيل** بمجرد السحب على الكانفس — حجم المستطيل هو مقدار الزوم.
-- ✋ **تحريك المستطيل** بعد رسمه بالضغط عليه من الداخل وسحبه.
-- 🔄 **تدوير المستطيل** عبر مقبض دائري أعلى المستطيل.
-- 📐 **تغيير الحجم** عبر سحب أي من الزوايا الأربع (مع الحفاظ على الزاوية المقابلة ثابتة، حتى أثناء الدوران).
-- 🔍 **تكبير/تصغير بالعجلة** فوق المستطيل.
-- 🟰 **شبكة مقسّمة أربعة أقسام** (Rule of Thirds + خط وسطي) للتأطير الدقيق.
+### Canvas & Drawing
+- **ReFrame** button captures the frame at the current playhead through the hidden **QE DOM** and shows it as the canvas background, so you can see the actual frame before applying the zoom.
+- **Draw the rectangle** by dragging on the canvas. The rectangle size is the zoom amount.
+- **Move** the rectangle after drawing it by pressing inside it and dragging.
+- **Rotate** the rectangle via the circular handle above it.
+- **Resize** by dragging any of the four corner handles (the opposite corner stays fixed, even while rotated).
+- **Wheel zoom** over the rectangle to scale it.
+- **Four-section grid** (rule of thirds + center cross) for precise framing.
 
-### الزوم والقيم
-- 🔢 قيمة الزوم مكتوبة **داخل المستطيل** وتُحدّث لحظياً مع كل تغيير.
-- الزوم يُشتق من **نسبة مساحة المستطيل إلى مساحة الكانفس**: مستطيل كامل = 100%، أصغر مستطيل ≈ الحد الأقصى.
-- 🎯 **أقصى زوم قابل للتخصيص**: افتراضي 600 (يمكن ضبطه من 100 إلى 1000).
-- 📊 لوحة قراءة (Readout) تعرض: الزوم، الموضع، الحجم، الدوران.
+### Zoom & Values
+- The zoom value is written **inside the rectangle** and updates live.
+- Zoom is derived from the **rectangle area to canvas area ratio**: a full rectangle = 100%, the smallest rectangle approaches the maximum.
+- **Customizable max zoom**: default 600 (adjustable from 100 to 1000).
+- A readout panel shows: zoom, position, size, rotation.
 
-### الأنيمشن والتطبيق
-- ⏱️ **مدة الأنيمشن** من 0 إلى 5 ثوانٍ.
-- 🌊 أنواع الحركة: `Linear` / `Ease In` / `Ease Out` / `Ease InOut`.
-- ✅ خيارات: ضبابية الحركة (Motion Blur)، إنشاء Keyframes، تثبيت مركز التكبير داخل المستطيل.
-- ▶️ زر **تطبيق الترانسفورم** يضيف تأثير Transform (match name `AE.ADBE Transform`) على المقطع تحت المؤشر مع ضبط Anchor Point وإنشاء Keyframes للزوم.
+### Animation & Application
+- **Transition duration** from 0 to 5 seconds.
+- Easing types: `Linear` / `Ease In` / `Ease Out` / `Ease InOut`.
+- Options: Motion Blur, Create Keyframes, Lock Zoom Center.
+- **Apply Transform** button adds the Transform effect (match name `AE.ADBE Transform`) on the clip under the playhead, sets the Anchor Point to the rectangle center, and creates **zoom keyframes**: a start keyframe at the current playhead time holding the clip's *current* scale, and an end keyframe after the chosen transition duration holding the target zoom derived from the rectangle.
 
 ---
 
-## 📂 بنية المشروع
+## Project Structure
 
 ```
 ZoomTransform/
-├── CSXS/manifest.xml      ← ملف الإصدار CSXS.9 (PPRO 13.x / 2020)
-├── .debug                 ← منفذ تصحيح محلي (8088)
-├── index.html             ← واجهة اللوحة (RTL عربية)
-├── css/style.css          ← تصميم حديث داكن متكيف مع ثيم Premiere
-├── js/main.js             ← منطق الكانفس + الرسم + التحكم
-├── lib/CSInterface.js     ← واجهة Adobe CEP الرسمية v9.4.0
-├── jsx/host.jsx           ← التفاعل مع Premiere (QE DOM + Transform)
-└── README.md             ← تعليمات التثبيت والاستخدام
+├── CSXS/manifest.xml      ← CSXS.9 (PPRO 13.x / 2020)
+├── .debug                 ← local debug port (8088)
+├── index.html             ← panel UI
+├── css/style.css          ← dark theme matching Premiere
+├── js/main.js             ← canvas drawing + rectangle manipulation + zoom derivation
+├── lib/CSInterface.js     ← official Adobe CEP v9.4.0
+├── jsx/host.jsx           ← Premiere interaction (QE DOM + Transform effect + keyframes)
+└── README.md             ← installation and usage
 ```
 
 ---
 
-## 🛠️ التثبيت
+## Installation
 
-### 1) نسخ الإضافة إلى مجلد الـ Extensions
+### 1) Copy the extension to the extensions folder
 
-انسخ مجلد `ZoomTransform` بالكامل إلى:
+Copy the entire `ZoomTransform` folder to:
 
-| النظام | المسار |
-|--------|--------|
+| OS | Path |
+|----|------|
 | **Windows** | `C:\Users\<USER>\AppData\Roaming\Adobe\CEP\extensions\ZoomTransform` |
 | **macOS** | `~/Library/Application Support/Adobe/CEP/extensions/ZoomTransform` |
 
-> إذا لم يكن مجلد `CEP/extensions` موجوداً، أنشئه.
+> Create the `CEP/extensions` folder if it does not exist.
 
-### 2) تفعيل وضع التصحيح (PlayerDebugMode)
+### 2) Enable PlayerDebugMode
 
-الإضافة غير موقّعة رقمياً، لذا يجب تفعيل `PlayerDebugMode`.
+The extension is unsigned, so `PlayerDebugMode` must be enabled.
 
 #### Windows (Registry)
-```reg
-[HKEY_CURRENT_USER\Software\Adobe\CSXS.9]
-"PlayerDebugMode"="1"
-```
-أو نفّذ في موجه الأوامر (كمسؤول):
 ```bat
 reg add "HKEY_CURRENT_USER\Software\Adobe\CSXS.9" /v PlayerDebugMode /t REG_SZ /d 1 /f
 ```
@@ -80,41 +75,52 @@ defaults write com.adobe.CSXS.9 PlayerDebugMode 1
 killall cfprefsd
 ```
 
-### 3) إعادة التشغيل والفتح
+### 3) Restart and open
 
-- أعد تشغيل **Adobe Premiere Pro 2020**.
-- افتح اللوحة من: **Window → Extensions → ZoomTransform**.
-
----
-
-## 🚀 الاستخدام
-
-1. ضع مقطعاً على الـ Timeline وتوقّف عند اللقطة المراد تطبيق الزوم عليها.
-2. اضغط **ReFrame** لالتقاط اللقطة وعرضها في الكانفس.
-3. اضبط **أقصى زوم** و**مدة الأنيمشن** و**نوع الحركة** حسب الحاجة.
-4. اسحب على الكانفس لرسم مستطيل الزوم، ثم حرّكه/أدره/غيّر حجمه لتحديد المنطقة.
-5. (اختياري) فعّل/عطّل **الشبكة**، **ضبابية الحركة**، **إنشاء Keyframes**، **تثبيت مركز الزوم**.
-6. اضغط **تطبيق الترانسفورم** لإضافة التأثير على المقطع تحت المؤشر.
+- Restart **Adobe Premiere Pro 2020**.
+- Open the panel from: **Window → Extensions → ZoomTransform**.
 
 ---
 
-## ⚠️ ملاحظات تقنية
+## Usage
 
-- **التقاط اللقطة (ReFrame)** يعتمد على محرك **QE DOM المخفي** (`app.enableQE()`). قد يختلف اسم دالة التصدير الدقيقة (`exportAsMedia` / `exportAsMediaDirect` / `exportFrame`) بحسب البناء الدقيق لبريمير 2020. جرّبها أولاً؛ إن ظهر خطأ *"تعذّر تصدير اللقطة"*, أبلغ برسالة الخطأ الدقيقة لضبط استدعاء الـ QE المناسب لبنائك.
-- **تأثير Transform** يُضاف بـ match name `AE.ADBE Transform`. في حالات نادرة قد يتطلب البناء الاسم المعروض `"Transform"` — يتم تجريب الاثنين تلقائياً.
-- بما أن الإضافة غير موقّعة، يتطلب التشغيل تفعيل `PlayerDebugMode` كما هو موضح أعلاه.
+1. Place a clip on the Timeline and move the playhead to the frame you want to zoom into.
+2. Click **ReFrame** to capture the frame and show it on the canvas.
+3. Adjust **Max Zoom**, **Transition duration**, and **Easing** as needed.
+4. Drag on the canvas to draw the zoom rectangle, then move / rotate / resize it to select the region.
+5. (Optional) Toggle **Grid**, **Motion Blur**, **Create Keyframes**, **Lock Zoom Center**.
+6. Click **Apply Transform** to add the effect on the clip under the playhead.
+
+### Keyframe behavior
+
+When **Create Keyframes** is on (and the transition duration is greater than 0), the extension:
+
+1. Reads the clip's **current scale** value (the zoom that was already applied).
+2. Creates a **start keyframe** at the current playhead time holding that current scale.
+3. Creates an **end keyframe** at `playhead + transition duration` holding the **target zoom** derived from the rectangle.
+
+So the animation transitions from the zoom that existed *before* using the extension, to the zoom you drew, over the chosen duration (e.g. `0.8s`).
 
 ---
 
-## 🔌 تطوير وتصحيح
+## Technical Notes
 
-ملف `.debug` يحدّد المنفذ المحلي **8088**. يمكنك فتح واجهة التصحيح في المتصفح عبر:
+- **ReFrame** relies on the hidden **QE DOM** (`app.enableQE()`). The exact export call name (`exportAsMediaDirect` / `exportAsMedia`) may differ between PPRO 13.x builds. If you see *"Could not export the frame"*, report the exact error so the QE call can be adjusted for your build.
+- The **Transform effect** is added by match name `AE.ADBE Transform`. Rarely, a build may require the display name `"Transform"` — both are tried automatically.
+- The **Anchor Point** is set to the center of the zoom rectangle (in pixel space) so scaling happens about the selected region. With **Lock Zoom Center** on, Position keyframes are also created to keep the region centered in the frame.
+- Because the extension is unsigned, running it requires `PlayerDebugMode` as described above.
+
+---
+
+## Development & Debugging
+
+The `.debug` file sets the local port **8088**. Open the debug UI in a browser at:
 ```
 http://localhost:8088
 ```
 
 ---
 
-## 📄 الترخيص
+## License
 
-هذا المشروع مفتوح المصدر للاستخدام والتطوير الحر. ملف `lib/CSInterface.js` ملك لـ Adobe ومُرخّص وفق شروط Adobe (انظر رأس الملف).
+This project is open source for free use and development. The file `lib/CSInterface.js` is owned by Adobe and licensed under Adobe's terms (see the file header).

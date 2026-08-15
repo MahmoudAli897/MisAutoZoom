@@ -151,7 +151,7 @@ html, body {
     gap: 8px;
 }
 .control-row > label {
-    flex: 0 0 120px;
+    flex: 0 0 150px;
     color: var(--text-dim);
     font-size: 11px;
 }
