@@ -1,0 +1,14 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Node / build artifacts
+node_modules/
+*.bin
+
+# ZXP packaging output
+*.zxp
+ZXPSignCmd
+package/
+dist/

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ZoomTransform - Adobe Premiere Pro CEP Extension
+  Target: CSXS.9 (Premiere Pro 13.x / 2020)
+  Provides interactive zoom animation via the AE.ADBE Transform effect.
+-->
+<ExtensionManifest Version="9.0" ExtensionBundleId="com.mahmoudali.zoomtransform"
+    ExtensionBundleVersion="1.0.0"
+    ExtensionBundleName="ZoomTransform"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <ExtensionList>
+        <Extension Id="com.mahmoudali.zoomtransform.panel" Version="1.0.0" />
+    </ExtensionList>
+
+    <ExecutionEnvironment>
+        <HostList>
+            <!-- Premiere Pro 13.x (2020) -->
+            <Host Name="PPRO" Version="[13.0,14.0]" />
+        </HostList>
+        <LocaleList>
+            <Locale Code="All" />
+        </LocaleList>
+        <RequiredRuntimeList>
+            <RequiredRuntime Name="CSXS" Version="9.0" />
+        </RequiredRuntimeList>
+    </ExecutionEnvironment>
+
+    <DispatchInfoList>
+        <Extension Id="com.mahmoudali.zoomtransform.panel">
+            <DispatchInfo>
+                <Resources>
+                    <MainPath>./index.html</MainPath>
+                    <ScriptPath>./jsx/host.jsx</ScriptPath>
+                    <CEFCommandLine>
+                        <Parameter>--enable-nodejs</Parameter>
+                        <Parameter>--mixed-context</Parameter>
+                    </CEFCommandLine>
+                </Resources>
+                <Lifecycle>
+                    <AutoVisible>true</AutoVisible>
+                </Lifecycle>
+                <UI>
+                    <Type>Panel</Type>
+                    <Menu>ZoomTransform</Menu>
+                    <Geometry>
+                        <Size>
+                            <Height>560</Height>
+                            <Width>420</Width>
+                        </Size>
+                        <MinSize>
+                            <Height>420</Height>
+                            <Width>340</Width>
+                        </MinSize>
+                        <MaxSize>
+                            <Height>1200</Height>
+                            <Width>900</Width>
+                        </MaxSize>
+                    </Geometry>
+                </UI>
+            </DispatchInfo>
+        </Extension>
+    </DispatchInfoList>
+</ExtensionManifest>
